@@ -91,7 +91,7 @@ public class NetworkPolicyActivity extends Activity {
         root.addView(wrGroup, full());
 
         TextView wrDesc = new TextView(this);
-        wrDesc.setText("兼容模式仅额外阻止 UDP/443。严格保护还会阻止常见 STUN/TURN UDP 端口，可能影响语音、视频和实时通信。");
+        wrDesc.setText("兼容模式阻断 UDP/443。严格保护在所有网络模式下只放行 DNS/UDP 53，拦截其余所有 UDP 目的端口（包含非标准 STUN/TURN），可能影响实时语音、视频或游戏。请断开并重新连接 VPN 使设置生效。");
         wrDesc.setAlpha(0.68f);
         root.addView(wrDesc, full());
 
