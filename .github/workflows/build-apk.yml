@@ -5,6 +5,10 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: apk-build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -34,6 +38,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+      - name: Validate custom routing rules
+        run: bash tools/test_custom_routes.sh
       - name: Build reconstructed APK
         run: bash tools/build.sh
       - uses: actions/upload-artifact@v4
