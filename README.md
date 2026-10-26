@@ -63,6 +63,44 @@ so export includes current and future preference stores, including CFIP scan
 history. Runtime `Enable` is forced off during export/import so importing a
 backup cannot auto-start VPN.
 
+## Per-profile custom routes
+
+The **Network Policy / 网络策略 → 自定义内网路由** editor saves IPv4/CIDR
+routes under the current X-Tunnel profile in `SocksPrefs`:
+
+- `10.0.0.104` becomes `10.0.0.104/32`.
+- `192.168.50.12/24` becomes `192.168.50.0/24`.
+- Multiple entries may be separated by commas, semicolons, or newlines.
+- Ports are not route rules: connect to `10.0.0.104:14432` after saving
+  `10.0.0.104/32`, not `10.0.0.104:14432` as a route.
+- Invalid rules cannot be saved and prevent a restored profile's VPN from
+  starting. Duplicates are normalized; maximum 128 routes.
+- Copying or deleting profiles copies/deletes associated custom routes.
+- Config import/export already enumerates SharedPreferences dynamically, so
+  it includes the per-profile `CustomRoutes_<profile-id>` keys.
+- The VPN adds explicit inclusion routes before `builder.establish()`; it
+  never uses `excludeRoute` or switches to a direct connection.
+- App-filter settings still apply: only apps captured by the VPN use these
+  routes. The selected remote X-Tunnel server must itself be able to reach
+  the destination private IP. A route alone cannot create remote network
+  reachability.
+
+The unchanged X-Tunnel transport native libraries are validated against the
+hashes above, and the WebRTC/AI runtime IP and UDP preferences are now passed
+to the transport when VPN service starts.
+
+Run the standalone route tests with `bash tools/test_custom_routes.sh`.
+
+### Release signing and reference-build parity
+
+`.github/workflows/release-apk.yml` is an explicitly gated **signed**
+release workflow. It requires the signing identity and its certificate
+fingerprint in GitHub Actions secrets. Builds signed with a fresh CI debug
+keystore **cannot be installed as upgrades** over APKs signed with a
+different key. The original custom-routes1 APK/rebuild archive is not stored
+in this repository, so source feature parity can be reconstructed but
+byte-for-byte parity with that earlier APK is not established.
+
 ## Build
 
 Requirements used by the workflow:
