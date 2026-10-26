@@ -25,6 +25,7 @@ git clone --filter=blob:none "$BASE_REPO" "$BASE"
 git -C "$BASE" checkout "$BASE_COMMIT"
 python3 "$ROOT/tools/patch_reference_ui.py" "$BASE"
 python3 "$ROOT/tools/patch_custom_routes.py" "$BASE"
+python3 "$ROOT/tools/patch_stable_tun.py" "$BASE"
 
 echo '[2/8] Fetch and verify known-good reference native binaries'
 REFERENCE_APK_URL="https://github.com/hhsw2015/x-tunnel/releases/download/v.13/x-tunnel-arm64-v8a.apk"
@@ -122,8 +123,8 @@ android {
         applicationId 'com.x.tunnel'
         minSdk 24
         targetSdk 35
-        versionCode 3
-        versionName '1.0-apkbase-cfip'
+        versionCode 4
+        versionName '1.0-custom-routes2-stable-policy'
         ndk { abiFilters 'arm64-v8a' }
     }
 
