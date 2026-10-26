@@ -42,6 +42,19 @@ jobs:
         run: bash tools/test_custom_routes.sh
       - name: Build reconstructed APK
         run: bash tools/build.sh
+      - name: Assert restored stable network policies
+        shell: bash
+        run: |
+          set -euo pipefail
+          JAVA=work/android/app/src/main/java/com/x/tunnel
+          grep -q 'return "10.254.253.1";' "$JAVA/Preferences.java"
+          grep -q 'UdpPolicy.forMode(' "$JAVA/Preferences.java"
+          grep -q 'getRuntimeUdpBlockPorts()' "$JAVA/TProxyService.java"
+          grep -q 'getRuntimeIpsPref()' "$JAVA/TProxyService.java"
+          grep -q 'CustomRouteRules.addToVpn(builder, customRoutes)' "$JAVA/TProxyService.java"
+          grep -q 'getCustomRoutes()' "$JAVA/NetworkPolicyActivity.java"
+          test -s x-tunnel-apkbase-cfip-arm64-debug.apk
+          sha256sum -c x-tunnel-apkbase-cfip-arm64-debug.apk.sha256
       - uses: actions/upload-artifact@v4
         with:
           name: x-tunnel-apkbase-cfip-arm64
