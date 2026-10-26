@@ -7,6 +7,9 @@ import android.widget.LinearLayout;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
 import android.widget.TextView;
+import android.widget.EditText;
+import android.widget.Button;
+import android.widget.ScrollView;
 
 public class NetworkPolicyActivity extends Activity {
     private Preferences prefs;
@@ -15,6 +18,8 @@ public class NetworkPolicyActivity extends Activity {
     private RadioButton webrtcCompat;
     private RadioButton webrtcStrict;
     private TextView status;
+    private EditText routesInput;
+    private TextView routesError;
     private boolean loading = false;
 
     @Override
@@ -22,7 +27,10 @@ public class NetworkPolicyActivity extends Activity {
         super.onCreate(state);
         prefs = new Preferences(this);
         setTitle("网络策略");
-        setContentView(buildUi());
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.addView(buildUi());
+        setContentView(scroll);
         load();
     }
 
@@ -87,6 +95,39 @@ public class NetworkPolicyActivity extends Activity {
         wrDesc.setAlpha(0.68f);
         root.addView(wrDesc, full());
 
+        TextView routesTitle = new TextView(this);
+        routesTitle.setText("自定义内网路由（当前节点）");
+        routesTitle.setTextSize(18);
+        LinearLayout.LayoutParams rtp = full();
+        rtp.topMargin = dp(18);
+        root.addView(routesTitle, rtp);
+
+        TextView routesHelp = new TextView(this);
+        routesHelp.setText("每行一个 IPv4 或 CIDR，如 10.0.0.104 或 192.168.50.0/24。" +
+                "单个 IP 自动转换为 /32，不要填写端口。只对进入 VPN 的应用生效，" +
+                "由当前 X-Tunnel 节点的远端网络访问目标；切换节点后使用各自保存的规则。");
+        routesHelp.setAlpha(0.72f);
+        root.addView(routesHelp, full());
+
+        routesInput = new EditText(this);
+        routesInput.setSingleLine(false);
+        routesInput.setMinLines(4);
+        routesInput.setMaxLines(9);
+        routesInput.setGravity(android.view.Gravity.TOP);
+        routesInput.setHint("10.0.0.104\n192.168.50.0/24");
+        routesInput.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        root.addView(routesInput, full());
+
+        Button saveRoutes = new Button(this);
+        saveRoutes.setText("保存当前节点路由");
+        saveRoutes.setOnClickListener(v -> saveRoutes());
+        root.addView(saveRoutes, full());
+
+        routesError = new TextView(this);
+        routesError.setTextColor(0xFFD32F2F);
+        root.addView(routesError, full());
+
         status = new TextView(this);
         status.setPadding(0, dp(18), 0, 0);
         root.addView(status, full());
@@ -110,6 +151,8 @@ public class NetworkPolicyActivity extends Activity {
         } else {
             webrtcCompat.setChecked(true);
         }
+        routesInput.setText(prefs.getCustomRoutes());
+        routesError.setText("");
         loading = false;
         updateStatus();
     }
@@ -126,6 +169,20 @@ public class NetworkPolicyActivity extends Activity {
         updateStatus();
     }
 
+    private void saveRoutes() {
+        try {
+            prefs.setCustomRoutes(routesInput.getText().toString());
+            routesInput.setText(prefs.getCustomRoutes());
+            routesError.setText("");
+            android.widget.Toast.makeText(this,
+                    "已保存当前节点路由；VPN 重新连接后生效",
+                    android.widget.Toast.LENGTH_LONG).show();
+        } catch (IllegalArgumentException ex) {
+            routesError.setText("保存失败：" + ex.getMessage());
+        }
+        updateStatus();
+    }
+
     private void updateStatus() {
         String mode = prefs.getNetworkMode() == Preferences.NETWORK_AI_STABLE
                 ? "AI 稳定"
@@ -133,7 +190,8 @@ public class NetworkPolicyActivity extends Activity {
         String wr = prefs.getWebRtcMode() == Preferences.WEBRTC_STRICT
                 ? "严格保护"
                 : "兼容";
-        status.setText("当前："
+        String profileName = prefs.getProfileName(prefs.getCurrentProfileId());
+        status.setText("当前节点：" + profileName + "\n当前："
                 + mode
                 + " / WebRTC "
                 + wr
