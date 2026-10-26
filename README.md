@@ -63,6 +63,30 @@ so export includes current and future preference stores, including CFIP scan
 history. Runtime `Enable` is forced off during export/import so importing a
 backup cannot auto-start VPN.
 
+## Stable privacy-policy restoration (2026-10-26)
+
+The stable Android enhancement's **strict WebRTC** behavior is restored:
+in `严格保护` mode, the original X-Tunnel Go UDP target-port filter
+receives an explicit list of **all destination UDP ports 1..65535 except
+DNS/53**, independent of standard or AI network mode. The native Go library
+does not accept wildcard/range expressions, so `UdpPolicy` constructs the
+full list once per app process and reuses it. The compatibility mode keeps
+UDP/443 blocked; unrelated per-profile ports are preserved. The transport
+receives these *runtime* ports and the runtime IP-family preference.
+
+The TUN IPv4 endpoint is now `10.254.253.1/32`, an RFC1918 private address,
+rather than the baseline's `198.18.0.1/32`. The remote DNS map endpoint
+`198.18.0.2` remains unchanged because it is part of HEV's `mapdns`
+configuration. The exact private TUN address used inside the October 12
+standalone APK cannot be independently verified from the repository, so this
+is **behavioral restoration**, not a bit-for-bit copy of that build.
+
+Automated checks: `bash tools/test_custom_routes.sh` tests route
+normalization and strict UDP policy for **all 65,535 ports**; GitHub Actions
+also verifies the reconstructed VPN service uses the runtime policy and
+non-198.18 TUN identity. Physical-device privacy tests remain necessary.
+The known-good X-Tunnel native library hashes remain pinned.
+
 ## Per-profile custom routes
 
 The **Network Policy / 网络策略 → 自定义内网路由** editor saves IPv4/CIDR
