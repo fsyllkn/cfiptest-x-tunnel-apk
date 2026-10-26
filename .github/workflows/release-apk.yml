@@ -1,0 +1,177 @@
+name: Release verified Android APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Version tag, for example v1.0-custom-routes1'
+        required: true
+        type: string
+      reference_parity_verified:
+        description: 'I compared this source against the final custom-routes1 APK and confirmed functional parity'
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apk-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: ${{ inputs.reference_parity_verified }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Validate release request
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9][0-9A-Za-z._-]*$ ]] || {
+            echo 'Release tag must start with v followed by a digit.' >&2
+            exit 1
+          }
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.0'
+          cache: false
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Configure Android SDK and NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKMANAGER"
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/26.1.10909125" >> "$GITHUB_ENV"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" 'platforms;android-35' 'build-tools;35.0.0' 'ndk;26.1.10909125'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Reconstruct and verify reference native core
+        run: bash tools/build.sh
+
+      - name: Require features from the last delivered APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          JAVA=work/android/app/src/main/java/com/x/tunnel
+          # Do not publish the older October 9 source as the October 12 custom-routes1 release.
+          grep -q 'getCustomRoutes' "$JAVA/NetworkPolicyActivity.java"
+          grep -q 'getCustomRoutes' "$JAVA/TProxyService.java"
+          grep -q 'prefs.getRuntimeUdpBlockPorts()' "$JAVA/TProxyService.java"
+          grep -q 'prefs.getRuntimeIpsPref()' "$JAVA/TProxyService.java"
+          echo 'Custom routing and runtime policy integration markers found.'
+
+      - name: Build unsigned release variant
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon -p work/android :app:assembleRelease
+          test -s work/android/app/build/outputs/apk/release/app-release-unsigned.apk
+
+      - name: Sign with existing app signing identity
+        shell: bash
+        env:
+          KEYSTORE_B64: ${{ secrets.APK_KEYSTORE_BASE64 }}
+          KEY_ALIAS: ${{ secrets.APK_KEY_ALIAS }}
+          KEYSTORE_PASSWORD: ${{ secrets.APK_KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.APK_KEY_PASSWORD }}
+          EXPECTED_SIGNER_SHA256: ${{ secrets.APK_SIGNER_SHA256 }}
+        run: |
+          set -euo pipefail
+          for required in KEYSTORE_B64 KEY_ALIAS KEYSTORE_PASSWORD KEY_PASSWORD EXPECTED_SIGNER_SHA256; do
+            test -n "${!required}" || {
+              echo "Missing required release signing secret: $required" >&2
+              exit 1
+            }
+          done
+          KEYSTORE="$RUNNER_TEMP/xtunnel-release.jks"
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$KEYSTORE"
+          chmod 600 "$KEYSTORE"
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/35.0.0"
+          APK_IN=work/android/app/build/outputs/apk/release/app-release-unsigned.apk
+          APK_ALIGNED="$RUNNER_TEMP/xtunnel-aligned.apk"
+          APK_OUT=X-Tunnel-CFIP-custom-routes-arm64-release.apk
+          "$BUILD_TOOLS/zipalign" -f -p 4 "$APK_IN" "$APK_ALIGNED"
+          "$BUILD_TOOLS/apksigner" sign \
+            --ks "$KEYSTORE" \
+            --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass env:KEYSTORE_PASSWORD \
+            --key-pass env:KEY_PASSWORD \
+            --out "$APK_OUT" "$APK_ALIGNED"
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$APK_OUT"
+          ACTUAL=$("$BUILD_TOOLS/apksigner" verify --print-certs "$APK_OUT" |
+            sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n1)
+          [[ "${ACTUAL,,}" == "${EXPECTED_SIGNER_SHA256,,}" ]] || {
+            echo "Signing certificate mismatch: $ACTUAL" >&2
+            exit 1
+          }
+          rm -f "$KEYSTORE"
+          sha256sum "$APK_OUT" > "$APK_OUT.sha256"
+
+      - name: Verify packaged native core hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=X-Tunnel-CFIP-custom-routes-arm64-release.apk
+          test "$(unzip -p "$APK" lib/arm64-v8a/libgojni.so | sha256sum | cut -d ' ' -f1)" = "f2d46d06ba36c91925ac2e550abe9f7c52100322e2adfcbd55a2c6568afe0a65"
+          test "$(unzip -p "$APK" lib/arm64-v8a/libhev-socks5-tunnel.so | sha256sum | cut -d ' ' -f1)" = "776ca62f76817d0fc0f3fe395a223c016643cd82bf1b2b3c55176a67d15c98e1"
+          sha256sum -c "$APK.sha256"
+
+      - name: Upload signed APK for inspection
+        uses: actions/upload-artifact@v4
+        with:
+          name: xtunnel-cfip-signed-release
+          path: |
+            X-Tunnel-CFIP-custom-routes-arm64-release.apk
+            X-Tunnel-CFIP-custom-routes-arm64-release.apk.sha256
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists; refusing to overwrite it." >&2
+            exit 1
+          fi
+          cat > "$RUNNER_TEMP/release-notes.md" <<EOF
+          X-Tunnel + CFIP Android arm64 release.
+
+          Source commit: ${GITHUB_SHA}
+          Includes CFIP scan, settings import/export, WebRTC policy, and per-profile custom routes.
+          Verified X-Tunnel native library hashes and the configured APK signing certificate.
+          The source/function equivalence checkbox must be confirmed against the final reference build.
+          EOF
+          gh release create "$RELEASE_TAG" \
+            X-Tunnel-CFIP-custom-routes-arm64-release.apk \
+            X-Tunnel-CFIP-custom-routes-arm64-release.apk.sha256 \
+            --target "$GITHUB_SHA" \
+            --title "X-Tunnel + CFIP $RELEASE_TAG" \
+            --notes-file "$RUNNER_TEMP/release-notes.md"
