@@ -24,6 +24,7 @@ echo '[1/8] Fetch UI scaffold only'
 git clone --filter=blob:none "$BASE_REPO" "$BASE"
 git -C "$BASE" checkout "$BASE_COMMIT"
 python3 "$ROOT/tools/patch_reference_ui.py" "$BASE"
+python3 "$ROOT/tools/patch_custom_routes.py" "$BASE"
 
 echo '[2/8] Fetch and verify known-good reference native binaries'
 REFERENCE_APK_URL="https://github.com/hhsw2015/x-tunnel/releases/download/v.13/x-tunnel-arm64-v8a.apk"
