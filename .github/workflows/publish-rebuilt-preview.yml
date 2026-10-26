@@ -1,0 +1,116 @@
+name: Publish custom-routes1 rebuilt preview
+
+# One-time preview release, triggered on adding or editing this workflow.
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/publish-rebuilt-preview.yml
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: v1.0-custom-routes1-rebuilt-preview1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.0'
+          cache: false
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Android SDK and NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/26.1.10909125" >> "$GITHUB_ENV"
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" 'platforms;android-35' 'build-tools;35.0.0' 'ndk;26.1.10909125'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Test custom routing parser and patch syntax
+        run: bash tools/test_custom_routes.sh
+
+      - name: Build and verify pinned X-Tunnel native libraries
+        run: bash tools/build.sh
+
+      - name: Verify routing integration and prepare artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          JAVA=work/android/app/src/main/java/com/x/tunnel
+          grep -q 'CustomRouteRules.addToVpn(builder, customRoutes)' "$JAVA/TProxyService.java"
+          grep -q 'CustomRouteRules.normalize(prefs.getCustomRoutes())' "$JAVA/TProxyService.java"
+          grep -q 'getRuntimeUdpBlockPorts()' "$JAVA/TProxyService.java"
+          grep -q 'getRuntimeIpsPref()' "$JAVA/TProxyService.java"
+          grep -q 'getCustomRoutes()' "$JAVA/NetworkPolicyActivity.java"
+          grep -q 'CUSTOM_ROUTES + "_" + toId' "$JAVA/Preferences.java"
+          grep -q 'CUSTOM_ROUTES};' "$JAVA/Preferences.java"
+          sha256sum -c x-tunnel-apkbase-cfip-arm64-debug.apk.sha256
+          unzip -l x-tunnel-apkbase-cfip-arm64-debug.apk | grep -q 'lib/arm64-v8a/libcfipscan.so'
+          cp x-tunnel-apkbase-cfip-arm64-debug.apk X-Tunnel-CFIP-custom-routes1-rebuilt-preview-arm64.apk
+          sha256sum X-Tunnel-CFIP-custom-routes1-rebuilt-preview-arm64.apk > X-Tunnel-CFIP-custom-routes1-rebuilt-preview-arm64.apk.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: X-Tunnel-CFIP-custom-routes1-rebuilt-preview-arm64
+          path: |
+            X-Tunnel-CFIP-custom-routes1-rebuilt-preview-arm64.apk
+            X-Tunnel-CFIP-custom-routes1-rebuilt-preview-arm64.apk.sha256
+          if-no-files-found: error
+
+      - name: Publish GitHub prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release already exists, refusing to replace" >&2
+            exit 1
+          fi
+          cat > "$RUNNER_TEMP/release-notes.md" <<EOF
+          X-Tunnel + CFIP custom-routes1 reconstructed preview (ARM64).
+
+          - Per-profile IPv4/CIDR routes included in the VPN.
+          - Route validation, profile copy/removal, config backup/restore.
+          - Original X-Tunnel native library hashes are verified at build time.
+          - Runtime IPv4 and WebRTC/UDP settings are passed into the tunnel core.
+
+          **Preview warning:** Signed with an ephemeral GitHub Actions debug
+          certificate, not proven byte-for-byte or signing-compatible with the
+          last APK from the prior conversation. May not install as an upgrade.
+          Back up app configuration before changing installed versions.
+
+          Source commit: $GITHUB_SHA
+          EOF
+          gh release create "$RELEASE_TAG" \
+            X-Tunnel-CFIP-custom-routes1-rebuilt-preview-arm64.apk \
+            X-Tunnel-CFIP-custom-routes1-rebuilt-preview-arm64.apk.sha256 \
+            --target "$GITHUB_SHA" \
+            --title "X-Tunnel + CFIP custom-routes1 rebuilt preview" \
+            --notes-file "$RUNNER_TEMP/release-notes.md" \
+            --prerelease
