@@ -1,6 +1,6 @@
-name: Publish custom-routes1 rebuilt preview
+name: Publish stable-policy custom-routes2 preview
 
-# One-time preview release, triggered on adding or editing this workflow.
+# Guarded preview release: triggered only by explicitly updating this workflow.
 on:
   push:
     branches: [main]
@@ -17,7 +17,7 @@ jobs:
     permissions:
       contents: write
     env:
-      RELEASE_TAG: v1.0-custom-routes1-rebuilt-preview1
+      RELEASE_TAG: v1.0-custom-routes2-stable-policy-preview1
     steps:
       - uses: actions/checkout@v4
         with:
@@ -64,21 +64,23 @@ jobs:
           grep -q 'CustomRouteRules.addToVpn(builder, customRoutes)' "$JAVA/TProxyService.java"
           grep -q 'CustomRouteRules.normalize(prefs.getCustomRoutes())' "$JAVA/TProxyService.java"
           grep -q 'getRuntimeUdpBlockPorts()' "$JAVA/TProxyService.java"
+          grep -q 'UdpPolicy.forMode(' "$JAVA/Preferences.java"
+          grep -q 'return "10.254.253.1";' "$JAVA/Preferences.java"
           grep -q 'getRuntimeIpsPref()' "$JAVA/TProxyService.java"
           grep -q 'getCustomRoutes()' "$JAVA/NetworkPolicyActivity.java"
           grep -q 'CUSTOM_ROUTES + "_" + toId' "$JAVA/Preferences.java"
           grep -q 'CUSTOM_ROUTES};' "$JAVA/Preferences.java"
           sha256sum -c x-tunnel-apkbase-cfip-arm64-debug.apk.sha256
           unzip -l x-tunnel-apkbase-cfip-arm64-debug.apk | grep -q 'lib/arm64-v8a/libcfipscan.so'
-          cp x-tunnel-apkbase-cfip-arm64-debug.apk X-Tunnel-CFIP-custom-routes1-rebuilt-preview-arm64.apk
-          sha256sum X-Tunnel-CFIP-custom-routes1-rebuilt-preview-arm64.apk > X-Tunnel-CFIP-custom-routes1-rebuilt-preview-arm64.apk.sha256
+          cp x-tunnel-apkbase-cfip-arm64-debug.apk X-Tunnel-CFIP-custom-routes2-stable-policy-arm64.apk
+          sha256sum X-Tunnel-CFIP-custom-routes2-stable-policy-arm64.apk > X-Tunnel-CFIP-custom-routes2-stable-policy-arm64.apk.sha256
 
       - uses: actions/upload-artifact@v4
         with:
-          name: X-Tunnel-CFIP-custom-routes1-rebuilt-preview-arm64
+          name: X-Tunnel-CFIP-custom-routes2-stable-policy-arm64
           path: |
-            X-Tunnel-CFIP-custom-routes1-rebuilt-preview-arm64.apk
-            X-Tunnel-CFIP-custom-routes1-rebuilt-preview-arm64.apk.sha256
+            X-Tunnel-CFIP-custom-routes2-stable-policy-arm64.apk
+            X-Tunnel-CFIP-custom-routes2-stable-policy-arm64.apk.sha256
           if-no-files-found: error
 
       - name: Publish GitHub prerelease
@@ -93,9 +95,11 @@ jobs:
             exit 1
           fi
           cat > "$RUNNER_TEMP/release-notes.md" <<EOF
-          X-Tunnel + CFIP custom-routes1 reconstructed preview (ARM64).
+          X-Tunnel + CFIP custom-routes2 stable network policy preview (ARM64).
 
           - Per-profile IPv4/CIDR routes included in the VPN.
+          - WebRTC strict blocks every UDP destination port except DNS/53.
+          - Private RFC1918 VPN TUN IPv4 10.254.253.1/32; mapped DNS stays unchanged.
           - Route validation, profile copy/removal, config backup/restore.
           - Original X-Tunnel native library hashes are verified at build time.
           - Runtime IPv4 and WebRTC/UDP settings are passed into the tunnel core.
@@ -108,9 +112,9 @@ jobs:
           Source commit: $GITHUB_SHA
           EOF
           gh release create "$RELEASE_TAG" \
-            X-Tunnel-CFIP-custom-routes1-rebuilt-preview-arm64.apk \
-            X-Tunnel-CFIP-custom-routes1-rebuilt-preview-arm64.apk.sha256 \
+            X-Tunnel-CFIP-custom-routes2-stable-policy-arm64.apk \
+            X-Tunnel-CFIP-custom-routes2-stable-policy-arm64.apk.sha256 \
             --target "$GITHUB_SHA" \
-            --title "X-Tunnel + CFIP custom-routes1 rebuilt preview" \
+            --title "X-Tunnel + CFIP custom-routes2 stable policy preview" \
             --notes-file "$RUNNER_TEMP/release-notes.md" \
             --prerelease
