@@ -1,5 +1,5 @@
 # X-Tunnel APK-baseline + CFIP
-# 纯vibecoding 以https://t.me/CF_NAT、https://t.me/cf_push频道发布的为基础
+## 纯vibecoding 以https://t.me/CF_NAT、https://t.me/cf_push频道发布的为基础
 Fresh reconstruction after abandoning the previous patch stack.
 
 ## Design rule
