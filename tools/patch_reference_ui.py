@@ -178,15 +178,13 @@ replace_once(
         }
 
         public String getRuntimeUdpBlockPorts() {
-                String ports = getUdpBlockPorts();
-                if (getNetworkMode() == NETWORK_AI_STABLE) {
-                        ports = mergeUdpPorts(ports, "443");
-                }
-                if (getWebRtcMode() == WEBRTC_STRICT) {
-                        ports = mergeUdpPorts(ports,
-                                "443,3478,5349,19302,19305,19306,19307,19308,19309");
-                }
-                return ports;
+                // WebRTC strict is independent of standard/AI network mode.
+                // The reference Go core accepts an explicit comma-separated
+                // port list, not '*' or ranges. Preserve DNS/53 only.
+                return UdpPolicy.forMode(
+                        getUdpBlockPorts(),
+                        getNetworkMode() == NETWORK_AI_STABLE,
+                        getWebRtcMode() == WEBRTC_STRICT);
         }
 
 	public int getTunnelMtu() {
